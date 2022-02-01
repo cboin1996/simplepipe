@@ -8,6 +8,17 @@ vars:
   HELM_VERS: v3.8.0
 
 tasks:
+  install:
+    prefix: install
+    desc: |
+      will perform installation of a cluster using k3d, and install necessary 
+      dependencies if they are not detected within /usr/local/bin on your machine.
+    deps: [helm:install]
+    cmds:
+      - task: k3d:create
+      - task: kube-prom:install
+      - task: argo:install
+
   k3d:create:
     prefix: k3d > create
     desc: create a k3d cluster, using the name {{.CLUSTER_NAME}}
@@ -29,6 +40,8 @@ tasks:
       - sudo mv {{OS}}-amd64/helm /usr/local/bin/helm
       - rm helm{{.HELM_VERS}}.tar.gz
       - rm -rf {{OS}}-amd64
+    status:
+      - test -f /usr/local/bin/helm
 
   helm:uninstall:
     prefix: helm > uninstall
@@ -37,6 +50,20 @@ tasks:
       helm has been installed using this task file, in /usr/local/bin folder on macOS or linux.
     cmds:
       - sudo rm /usr/local/bin/helm
+
+  kube-prom:install:
+    prefix: kube-prom > install
+    desc: installs the kube-prometheus stack, version {{.KUBE_PROM_NAME}}. Assumes that this has not already been installed.
+    cmds:
+      - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      - helm repo update
+      - helm install {{.KUBE_PROM_NAME}} prometheus-community/kube-prometheus-stack
+    
+  kube-prom:uninstall:
+    prefix: kube-prom < destroy
+    desc: uninstalls the kube-prometheus stack, version {{.KUBE_PROM_NAME}}
+    cmds:
+      - helm uninstall {{.KUBE_PROM_NAME}}
 
   argo:install:
     prefix: argo > install
@@ -53,17 +80,3 @@ tasks:
           interface using shift-f while hovering over the server.
     cmds:
       - kubectl -n argo port-forward deployment/argo-server 2746:2746
-  
-  kube-prom:install:
-    prefix: kube-prom > install
-    desc: installs the kube-prometheus stack, version {{.KUBE_PROM_NAME}}
-    cmds:
-      - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-      - helm repo update
-      - helm install {{.KUBE_PROM_NAME}} prometheus-community/kube-prometheus-stack
-
-  kube-prom:uninstall:
-    prefix: kube-prom < destroy
-    desc: uninstalls the kube-prometheus stack, version {{.KUBE_PROM_NAME}}
-    cmds:
-      - helm uninstall {{.KUBE_PROM_NAME}}
