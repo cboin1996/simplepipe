@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: simplepipe-example-
+  labels:
+    workflows.argoproj.io/archive-strategy: "false"
+  annotations:
+    workflows.argoproj.io/description: |
+      TODO: fill this out.
+spec:
+  entrypoint: simplepipe-example
+  templates:
+    - name: simplepipe-example
+      container:
+        image: example
+        imagePullPolicy: IfNotPresent
+        command: [python3]
+        args: ["app.py"]
