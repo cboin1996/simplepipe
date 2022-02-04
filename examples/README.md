@@ -1,1 +1,0 @@
-Project folder for placing examples.

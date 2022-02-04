@@ -1,6 +1,13 @@
-A simple pipeline for demonstrating a kubernetes cluster with 
-argo workflows working with metric monitoring using prometheus.
+# Usage
+## Intention
+This project is meant to be an example of how to submit workflows using argo workflows, and view metrics from the workflows within grafana using prometheus to pull the metrics.
 
-# Examples
-Included for beginners is a simle example for setting up a hello world test 
-using a simple python script to be submitted as an argo workflow.
+## Installation
+1. Ensure that the Taskfile has been executed, and that a cluster has been created on your 
+pc.  
+    - If you haven't already, execute:
+    ```shell
+    task install
+    ```
+## Examples
+See the examples folder for example applications.
