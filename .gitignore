@@ -1,1 +1,2 @@
-contrib/**
+# Ignore directories
+contrib
