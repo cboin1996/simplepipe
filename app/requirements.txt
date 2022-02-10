@@ -1,1 +1,4 @@
 prometheus-client==0.13.1
+requests==2.27.1
+beautifulsoup4==4.9.0
+requests-html==0.3.4
