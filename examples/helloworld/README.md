@@ -14,7 +14,7 @@
     ```
 5. Submit the workflow using command 
     ```shell
-    kubectl create -f config/dev/workflows/hello.yml -n argo
+    kubectl create -f examples/workflows/hello.yaml -n argo
     ```
 6. Verify the workflow was submitted by checking the argoUI for a workflow with prefix simplepipe:
     - if you haven't already, open a second shell in the project and execute

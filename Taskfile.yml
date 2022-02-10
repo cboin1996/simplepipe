@@ -4,8 +4,10 @@ silent: true
 
 vars:
   CLUSTER_NAME: simplepipe-cluster
-  KUBE_PROM_NAME: simplepipe
+  KUBE_PROM_NAME: kube-prom
+  PROM_PUSHGW_NAME: prom-pushgw
   HELM_VERS: v3.8.0
+  PUSH_GATEWAY_VERS: 1.4.2
 
 tasks:
   install:
@@ -19,6 +21,15 @@ tasks:
       - task: kube-prom:install
       - task: argo:install
       - task: roles:configure
+      - task: prom-push-gw:install
+
+  build:local:
+    prefix: build
+    desc: |
+      builds the application locally, and loads into the cluster.
+    cmds:
+      - docker build -t simplepipe . 
+      - k3d image import simplepipe -c {{.CLUSTER_NAME}}
 
   k3d:create:
     prefix: k3d > create
@@ -79,10 +90,24 @@ tasks:
         --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false
     
   kube-prom:uninstall:
-    prefix: kube-prom < destroy
-    desc: uninstalls the kube-prometheus stack, with name {{.KUBE_PROM_NAME}}
+    prefix: helmcharts < uninstall
+    desc: uninstalls all charts associated with {{.KUBE_PROM_NAME}}
     cmds:
       - helm uninstall {{.KUBE_PROM_NAME}}
+    
+  prom-push-gw:install:
+    prefix: prom-push-gw > install
+    desc: installs prometheus push gateway
+    cmds:
+      - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      - helm repo update
+      - helm install {{.PROM_PUSHGW_NAME}} prometheus-community/prometheus-pushgateway
+
+  prom-push-gw:uninstall:
+    prefix: prom-push-gw < uninstall
+    desc: uninstalls all charts associated with {{.PU}}
+    cmds:
+      - helm uninstall {{.PROM_PUSHGW_NAME}}
 
   prometheus:portfwd:
     prefix: prometheus > portfwd
@@ -130,8 +155,8 @@ tasks:
     desc: |
           Applies all configuration yaml to the cluster
     cmds:
-      - kubectl apply -f config/roles
-      - kubectl apply -f config/servicemonitors
+      - kubectl apply -f manifests/roles
+      - kubectl apply -f manifests/servicemonitors
   
   k8s:delete:
     prefix: kubectl < destroy
