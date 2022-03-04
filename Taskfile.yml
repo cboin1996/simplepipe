@@ -1,11 +1,19 @@
-version: '3'
+version: "3"
 
 silent: true
 
 vars:
   CLUSTER_NAME: simplepipe-cluster
-  KUBE_PROM_NAME: kube-prom
-  PROM_PUSHGW_NAME: prom-pushgw
+  KUBE_PROM_NAMESPACE: monitoring
+  KUBE_PROM_NAME: kube-prometheus-stack
+  INGRESS_NGINX_NAME: ingress-nginx
+  INGRESS_NGINX_NAMESPACE: ingress-nginx
+  ALICE_NAMESPACE: alice
+  BOB_NAMESPACE: bob
+  PROM_PUSHGW_NAME_ALICE: prometheus-pushgateway-alice
+  PROM_PUSHGW_NAME_BOB: prometheus-pushgateway-bob
+
+  APP_NAME: simplepipe
   HELM_VERS: v3.8.0
   PUSH_GATEWAY_VERS: 1.4.2
 
@@ -18,42 +26,48 @@ tasks:
     deps: [helm:install]
     cmds:
       - task: k3d:create
+      - task: metallb:isntall
+      - task: ingress-nginx:install
+      - task: dnsmasq:install
+      - task: dnsmasq:configure-cluster
+      - task: keycloak:install
       - task: kube-prom:install
       - task: argo:install
-      - task: roles:configure
       - task: prom-push-gw:install
+      - task: k8s:apply
+      - task: k8s:createconfigMap
 
   build:local:
     prefix: build
     desc: |
       builds the application locally, and loads into the cluster.
     cmds:
-      - docker build -t simplepipe . 
-      - k3d image import simplepipe -c {{.CLUSTER_NAME}}
+      - docker build -t {{.APP_NAME}} .
+      - k3d image import {{.APP_NAME}} -c {{.CLUSTER_NAME}}
 
   k3d:create:
     prefix: k3d > create
     desc: create a k3d cluster, using the name {{.CLUSTER_NAME}}
     cmds:
       - k3d cluster create {{.CLUSTER_NAME}}
-  
+
   k3d:destroy:
     prefix: k3d < destroy
     desc: destroy the k3d cluster with name {{.CLUSTER_NAME}}
     cmds:
       - k3d cluster delete {{.CLUSTER_NAME}}
-  
+
   k3d:start:
     prefix: k3d > start
-    desc:  start the k3d cluster, using the name {{.CLUSTER_NAME}}
+    desc: start the k3d cluster, using the name {{.CLUSTER_NAME}}
     cmds:
-    - "k3d cluster start {{.CLUSTER_NAME}}"
+      - "k3d cluster start {{.CLUSTER_NAME}}"
 
   k3d:stop:
     prefix: k3d > stop
     desc: start the k3d cluster, with the name {{.CLUSTER_NAME}}
     cmds:
-    - "k3d cluster stop {{.CLUSTER_NAME}}"
+      - "k3d cluster stop {{.CLUSTER_NAME}}"
 
   helm:install:
     prefix: helm < install
@@ -75,6 +89,131 @@ tasks:
     cmds:
       - sudo rm /usr/local/bin/helm
 
+  metallb:install:
+    prefix: metallb > install
+    desc: installs metallb for local development
+    cmds:
+      # Get the ingress ip range to pass into metallb values config
+      - |
+        cidr_block=$(docker network inspect k3d-{{.CLUSTER_NAME}} | jq '.[0].IPAM.Config[0].Subnet' | tr -d '"')
+        cidr_base_addr=${cidr_block%???}
+        ingress_first_addr=$(echo $cidr_base_addr | awk -F'.' '{print $1,$2,255,0}' OFS='.')
+        ingress_last_addr=$(echo $cidr_base_addr | awk -F'.' '{print $1,$2,255,255}' OFS='.')
+        ingress_range=$ingress_first_addr-$ingress_last_addr
+        helm upgrade --install --wait --timeout 15m \
+        --namespace metallb-system --create-namespace \
+        --repo https://metallb.github.io/metallb metallb metallb \
+        --values - <<EOF
+        configInline:
+          address-pools:
+          - name: default
+            protocol: layer2
+            addresses:
+            - ${ingress_range}
+        EOF
+
+  metallb:uninstall:
+    prefix: metallb < uninstall
+    desc: uninstalls metalb
+    cmds:
+      - helm uninstall metallb -n metallb-system
+      - kubectl delete ns metallb-system
+
+  ingress-nginx:install:
+    prefix: ingress-nginx > install
+    desc: install nginx within namespace ingress
+    cmds:
+      - |
+        helm upgrade --install \
+        --namespace {{.INGRESS_NGINX_NAMESPACE}} --create-namespace \
+        --repo https://kubernetes.github.io/ingress-nginx \
+        {{.INGRESS_NGINX_NAME}} {{.INGRESS_NGINX_NAME}} \
+        --values - << EOF 
+        defaultBackend: 
+          enabled: true 
+        EOF
+
+  ingress-nginx:uninstall:
+    prefix: ingress-nginx < uninstall
+    desc: uninstall ingress-nginx and the ingress namespace
+    cmds:
+      - helm uninstall {{.INGRESS_NGINX_NAME}} -n {{.INGRESS_NGINX_NAMESPACE}}
+      - kubectl delete ns {{.INGRESS_NGINX_NAMESPACE}}
+
+  dnsmasq:install:
+    prefix: dnsmasq > install
+    desc: |
+      installs dnsmasq
+      NOTE: add the following lines to dnsmasq for configuration to be complete!
+        bind-dymamic
+        listen-address=127.0.0.1 (ubuntu) (wsl) hostname from /etc/resolv.conf
+        server=8.8.8.8
+        server=8.8.4.4
+        conf-dir=/etc/dnsmasq.d/,*.conf
+
+    cmds:
+      - sudo apt install dnsmasq
+      - |
+        echo NOTE: add the following lines to dnsmasq for configuration to be complete! \
+          bind-dymamic \
+          listen-address=127.0.0.1 "(ubuntu)" "(wsl)" hostname from /etc/resolv.conf \
+          server=8.8.8.8 \
+          server=8.8.4.4 \
+          conf-dir=/etc/dnsmasq.d/,*.conf \
+
+  dnsmasq:configure-cluster:
+    prefix: dnsmasq > dnsmasq:configure-cluster
+    desc: |
+      Adds a file k3d.{{.APP_NAME}}.conf file which resolves the 
+      IP of the local load .status.loadBalancer.ingress
+
+      In addition ( :( ) if you get NXLOOKUP when running 
+      nslookup {{.APP_NAME}}.cluster, try add a line to 
+      /etc/resolv.conf above the existing nameserver with nameserver 127.0.0.1
+
+    cmds:
+      - |
+        LB_IP=$(kubectl get svc -n {{.INGRESS_NGINX_NAMESPACE}} {{.INGRESS_NGINX_NAME}}-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        echo "address=/{{.APP_NAME}}.cluster/$LB_IP" \
+             | sudo tee /etc/dnsmasq.d/k3d.{{.APP_NAME}}.conf
+      # This is a WSL hack for restarting, since we dont have systemd on wsl!
+      - sudo /etc/init.d/dnsmasq restart
+
+  keycloak:install:
+    prefix: keycloak > install
+    desc: |
+      installs keycloak into the cluster. 
+      NOTE - sample passwords are provided here! Not suitable for prod!
+    cmds:
+      - |
+        helm upgrade --install \
+        --namespace keycloak --create-namespace \
+        --repo https://charts.bitnami.com/bitnami keycloak keycloak \
+        --reuse-values --values - <<EOF
+        auth:
+          createAdminUser: true
+          adminUser: admin
+          adminPassword: admin
+          managementUser: manager
+          managementPassword: manager
+        proxyAddressForwarding: true
+        ingress:
+          enabled: true
+          hostname: keycloak.{{.APP_NAME}}.cluster
+          annotations:
+            kubernetes.io/ingress.class: nginx
+        postgresql:
+          enabled: true
+          postgresqlPassword: password
+        EOF
+
+  keycloak:uninstall:
+    prefix: keycloak < uninstall
+    desc: uninstalls keycloak from the cluster
+    cmds:
+      - helm uninstall keycloak -n keycloak
+      - kubectl delete ns keycloak
+
   kube-prom:install:
     prefix: kube-prom > install
     desc: |
@@ -82,86 +221,98 @@ tasks:
       Note that the two --set arguments are described under heading 'prometheus.io/scrape' 
       here: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
     cmds:
+      - kubectl create ns {{.KUBE_PROM_NAMESPACE}}
       - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
       - helm repo update
       - |
-        helm install {{.KUBE_PROM_NAME}} prometheus-community/kube-prometheus-stack \
+        helm install {{.KUBE_PROM_NAME}} -n {{.KUBE_PROM_NAMESPACE}} prometheus-community/kube-prometheus-stack \
         --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
         --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false
-    
+
   kube-prom:uninstall:
     prefix: helmcharts < uninstall
     desc: uninstalls all charts associated with {{.KUBE_PROM_NAME}}
     cmds:
-      - helm uninstall {{.KUBE_PROM_NAME}}
-    
+      - helm uninstall -n {{.KUBE_PROM_NAMESPACE}} {{.KUBE_PROM_NAME}}
+      - kubectl delete ns {{.KUBE_PROM_NAMESPACE}}
+
   prom-push-gw:install:
     prefix: prom-push-gw > install
-    desc: installs prometheus push gateway
+    desc: installs prometheus push gatewaty into namespaces alice and bob
     cmds:
       - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
       - helm repo update
-      - helm install {{.PROM_PUSHGW_NAME}} prometheus-community/prometheus-pushgateway
+      - helm install {{.PROM_PUSHGW_NAME_ALICE}} -n {{.ALICE_NAMESPACE}} prometheus-community/prometheus-pushgateway
+      - helm install {{.PROM_PUSHGW_NAME_BOB}} -n {{.BOB_NAMESPACE}} prometheus-community/prometheus-pushgateway
 
   prom-push-gw:uninstall:
     prefix: prom-push-gw < uninstall
     desc: uninstalls all charts associated with {{.PU}}
     cmds:
-      - helm uninstall {{.PROM_PUSHGW_NAME}}
+      - helm uninstall -n {{.KUBE_PROM_NAMESPACE}} {{.PROM_PUSHGW_NAME}}
 
-  prometheus:portfwd:
-    prefix: prometheus > portfwd
-    desc: |
-          serves prometheus UI through port 9090.
+  argocli:install:
+    prefix: arcocli > install
+    desc: installs the argocli, version 3.2.8
     cmds:
-      - kubectl port-forward svc/simplepipe-kube-prometheus-prometheus 9090:9090
+      - curl -sLO https://github.com/argoproj/argo-workflows/releases/download/v3.2.8/argo-linux-amd64.gz
+      - gunzip argo-linux-amd64.gz
+      - chmod +x argo-linux-amd64
+      - sudo mv ./argo-linux-amd64 /usr/local/bin/argo
 
-  grafana:portfwd:
-    prefix: grafana > portfwd
-    desc: |
-          sets up the grafana interface to be served through port 3000. 
-          The kube-prometheus stack comes preinstalled with grafana, with
-          service name 'kube-prom-stack-grafana'.
-          Alternatively, one can use k9s and port forward through the 
-          interface using shift-f while hovering over the server.
+  argocli:uninstall:
+    prefix: arcocli < uninstall
+    desc: uninstalls the argocli, removing from /usr/local/bin
     cmds:
-      - kubectl port-forward deployment/{{.KUBE_PROM_NAME}}-grafana 3000:3000
+      - sudo rm /usr/local/bin/argo
 
   argo:install:
     prefix: argo > install
     desc: installs argo workflow to the currently active cluster in the 'argo' namespace
     cmds:
-      - kubectl create ns argo
+      - "kubectl create ns argo || true"
+      # - kubectl apply -n argo -f https://raw.githubusercontent.com/argoproj/argo-workflows/master/manifests/install.yaml
       - kubectl apply -n argo -f https://raw.githubusercontent.com/argoproj/argo-workflows/master/manifests/quick-start-postgres.yaml
 
   argo:uninstall:
     prefix: argo < uninstall
     desc: uninstalls argo workflow from the currently active cluster in the 'argo' namespace
     cmds:
+      # - kubectl delete -n argo -f https://raw.githubusercontent.com/argoproj/argo-workflows/master/manifests/install.yaml
       - kubectl delete -n argo -f https://raw.githubusercontent.com/argoproj/argo-workflows/master/manifests/quick-start-postgres.yaml
       - kubectl delete ns argo
 
-  argo:portfwd:
-    prefix: argo > portfwd
-    desc: |
-          sets up the server interface to be served through port 2746. 
-          Alternatively, one can use k9s and port forward through the 
-          interface using shift-f while hovering over the server.
-    cmds:
-      - kubectl port-forward deployment/argo-server 2746:2746
-
   k8s:apply:
-    prefix: kubectl > applyall
+    prefix: k8s > apply
     desc: |
-          Applies all configuration yaml to the cluster
+      Applies all configuration yaml to the cluster through apply and create commands
+      via kubectl. NOTE: requires the setup of a .env file for the config map to be created!
     cmds:
       - kubectl apply -f manifests/roles
       - kubectl apply -f manifests/servicemonitors
-  
+      - kubectl apply -f manifests/roles
+      - kubectl apply -f manifests/rolebindings
+      - kubectl apply -f manifests/serviceaccounts
+
   k8s:delete:
-    prefix: kubectl < destroy
+    prefix: k8s < destroy
     desc: |
-          Applies all configuration yaml to the cluster
+      Applies all configuration yaml to the cluster
     cmds:
       - kubectl delete -f config/roles
       - kubectl delete -f config/servicemonitors
+
+  k8s:createconfigMap:
+    prefix: k8s > createconfigMap
+    desc: |
+      Creates a configMap from an expected .env configuration file. 
+      Please see default.env as an example configuration.
+    cmds:
+      - kubectl create configmap {{.APP_NAME}}-config --from-file=.env
+
+  k8s:deleteconfigMap:
+    prefix: k8s < deleteConfigMap
+    desc: |
+      Deletes the config map from the cluster
+    cmds:
+      - kubectl delete configmap {{.APP_NAME}}-config

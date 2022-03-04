@@ -10,12 +10,12 @@ class WeatherMonitor(object):
     """Simple synchronous weather monitor polling guelph's weather every
     30 seconds.
     """ 
-    def __init__(self, registry: prometheus_client.CollectorRegistry, gw_ip: str):
+    def __init__(self, gw_ip: str):
         logger.info("Initializing.")
-        self.registry = registry
+        self.registry = prometheus_client.CollectorRegistry() # Registry for the job/any metrics.
         self.gw_ip = gw_ip
         self.state_enum = prometheus_client.Enum('weather_monitor_status', 'status of the weather monitor',
-                                            states=['starting', 'running', 'stopped'], registry=registry)
+                                            states=['starting', 'running', 'stopped'], registry=self.registry)
         # CPU and RAM metrics through the process collector are passed to the registry for update upon push
         prometheus_client.ProcessCollector('weather_monitor_cpu_ram', registry=self.registry)
         self.continue_running = True
