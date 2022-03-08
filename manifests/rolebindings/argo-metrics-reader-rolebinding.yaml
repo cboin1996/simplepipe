@@ -8,6 +8,6 @@ roleRef:
   kind: Role
   name: argo-metrics-reader-role
 subjects:
-- kind: ServiceAccount
-  name: simplepipe-kube-prometheus-prometheus
-  namespace: default
+  - kind: ServiceAccount
+    name: simplepipe-kube-prometheus-prometheus
+    namespace: monitoring

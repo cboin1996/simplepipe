@@ -3,9 +3,8 @@ FROM ubuntu:21.10
 # Including rm -rf /var/lib/apt/lists/* saves memory by removing
 # cached items related to the upgrade command
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update -y && \
-    apt-get -y upgrade && \
-    apt-get install python3-pip -y && \
+RUN apt-get update -y && apt-get -y upgrade && \
+    apt-get install -y python3-pip && \
     rm -rf /var/lib/apt/lists/* 
 
 WORKDIR /app
