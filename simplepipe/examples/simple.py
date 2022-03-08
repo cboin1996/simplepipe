@@ -1,5 +1,5 @@
 import random
-from app.util import fileutil
+from util import fileutil
 import sys, os
 
 def main():

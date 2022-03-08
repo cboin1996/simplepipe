@@ -3,7 +3,6 @@ import prometheus_client
 from typing import List
 import sys
 from examples import simple
-
 from util import logutil, dateutil
 from config import env
 """
@@ -20,7 +19,7 @@ def main(startup_args: List[str]):
     # Install argo workflows clusterwide with minio and postgres.
     metric_path = simple.main()
     collector = metrics.MetricCollector(prometheus_push_gateway_ip=config.push_gateway_hostname)
-    collector.push_to_gateway(metrics=collector.load_metrics_from_file(metric_path), job_name="simple")
+    collector.load_and_push(metric_path, 'simple')
 
 if __name__=="__main__":
     main(sys.argv[1:])
