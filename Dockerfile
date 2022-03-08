@@ -7,9 +7,9 @@ RUN apt-get update -y && apt-get -y upgrade && \
     apt-get install -y python3-pip && \
     rm -rf /var/lib/apt/lists/* 
 
-WORKDIR /app
-COPY app .
-RUN pip install -r requirements.txt
+WORKDIR /simplepipe
+COPY simplepipe .
+RUN pip install -e .
 # Run as non-root user:
 RUN useradd --create-home appuser
 USER appuser
