@@ -28,4 +28,4 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: Build docker image
         run: |
-          docker build ./images/simplepipe/. --file Dockerfile --tag simplepipe:$(date +%s)
+          docker build images/simplepipe --tag simplepipe:$(date +%s)
