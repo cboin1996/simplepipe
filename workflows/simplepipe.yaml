@@ -1,0 +1,65 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: simplepipe-
+  labels:
+    workflows.argoproj.io/archive-strategy: "false"
+  annotations:
+    workflows.argoproj.io/description: |
+      TODO: fill this out.
+spec:
+  entrypoint: main
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: basicmetrics
+            template: basicmetrics
+          - name: push-metrics
+            template: push-metrics
+            dependencies:
+              - basicmetrics
+    - name: basicmetrics
+      script:
+        image: python
+        imagePullPolicy: IfNotPresent
+        command: [python3]
+        source: |
+          import random
+          import json
+          import os
+          import glob
+          print("Starting up metric script")
+          i = random.randint(1, 100)
+          metrics = [{"name" : "simple", 
+              "description": "generated random integer", "value": i, "metric_type": "gauge"}]
+          print(f"I am putting the file here: {os.path.join(os.sep, 'tmp', 'metric.json')}")
+          with open(os.path.join(os.sep, 'tmp','metric.json'), 'w') as f:
+            f.write(json.dumps(metrics))
+          print("Saved metrics successfully.")
+      outputs:
+        artifacts:
+          - name: file
+            path: "/tmp/metric.json"
+            s3:
+              key: metric-json
+    - name: push-metrics
+      inputs:
+        artifacts:
+          - name: file
+            path: "/tmp/metric-in.json"
+            s3:
+              key: metric-json
+      container:
+        image: simplepipe:latest
+        imagePullPolicy: IfNotPresent
+        command: [python3]
+        args: ["app.py", "/tmp/metric-in.json", "simple"]
+        envFrom:
+          - configMapRef:
+              name: simplepipe-config
+        resources:
+          requests:
+            memory: 256Mi
+            cpu: 1
+      

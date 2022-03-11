@@ -1,0 +1,42 @@
+version: "3"
+
+vars:
+  REGISTRY: "docker.io/cboin1996"
+  CLUSTER_NAME: "simplepipe-cluster"
+  TAG: 
+    sh: head -c 32 /dev/urandom | base64 | tr -d -c '[:alnum:]'
+
+tasks:
+  build:
+    prefix: build all
+    desc: build everything
+    cmds:
+      - task: build:helloworld
+      - task: build:simplepipe
+  
+  .build:
+    cmds:
+      - docker build {{.APP_NAME}} -t {{.APP_NAME}}:{{.TAG}}
+      - docker tag {{.APP_NAME}}:{{.TAG}} {{.APP_NAME}}:latest
+      - k3d image import "{{.APP_NAME}}:{{.TAG}}" -c {{.CLUSTER_NAME}}
+      - k3d image import "{{.APP_NAME}}:latest" -c {{.CLUSTER_NAME}}
+      
+  build:helloworld:
+    prefix: build > helloworld
+    desc: |
+      build the helloworld example image
+    cmds:
+      - task: .build
+        vars:
+          APP_NAME: helloworld
+
+          
+  build:simplepipe:
+    prefix: build > simplepipe
+    desc: |
+      build the simplepipe example image
+    cmds:
+      - task: .build
+        vars:
+          APP_NAME: simplepipe
+      

@@ -14,3 +14,7 @@ __pycache__
 
 # Configuration
 .env
+
+# ignore additional misc
+dockerinfo.md
+worfklow-crd.yaml

@@ -2,6 +2,10 @@
 
 Simple k8s monitoring with argo workflows and prometheus.
 
+## Installation
+See the [Taskfile.yml](Taskfile.yml) for installation commands.
+
+
 ## Examples
 
 See the README.md in each example folder for how to run.
@@ -32,3 +36,4 @@ for simplepipe to push to the prometheus push gateway
 
 Example of real time monitoring weather in guelph and pushing updates
 to the push gateway
+
