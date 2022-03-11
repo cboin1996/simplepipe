@@ -27,9 +27,8 @@ tasks:
     cmds:
       - task: k3d:create
       - task: kube-prom:install
-      - task: argo:install
       - task: prom-push-gw:install
-      - task: k8s:apply
+      - task: manifests:install
       - task: k8s:createconfigMap
 
   uninstall:
@@ -131,21 +130,6 @@ tasks:
       - kubectl delete ns {{.ALICE_NAMESPACE}}
       - kubectl delete ns {{.BOB_NAMESPACE}}
 
-  argocli:install:
-    prefix: arcocli > install
-    desc: installs the argocli, version 3.2.8
-    cmds:
-      - curl -sLO https://github.com/argoproj/argo-workflows/releases/download/v3.2.8/argo-linux-amd64.gz
-      - gunzip argo-linux-amd64.gz
-      - chmod +x argo-linux-amd64
-      - sudo mv ./argo-linux-amd64 /usr/local/bin/argo
-
-  argocli:uninstall:
-    prefix: arcocli < uninstall
-    desc: uninstalls the argocli, removing from /usr/local/bin
-    cmds:
-      - sudo rm /usr/local/bin/argo 
-
   manifests:install:
     prefix: argo > install
     desc: installs argo workflow to the currently active cluster in the 'argo' namespace
@@ -167,17 +151,6 @@ tasks:
     cmds:
       - kubectl get secret -n argo my-minio-cred -o yaml | yq -P '.metadata.namespace |= "alice"' - | kubectl apply -f -
       - kubectl get secret -n argo my-minio-cred -o yaml | yq -P '.metadata.namespace |= "bob"' - | kubectl apply -f -
-  k8s:apply:
-    prefix: k8s > apply
-    desc: |
-      Applies all configuration yaml in the manifest/examples directory
-      to the cluster through apply and create commands via kubectl. 
-      NOTE: requires the setup of a .env file for the config map to be created!
-    cmds:
-      - kubectl apply -f manifests/examples/roles
-      - kubectl apply -f manifests/examples/servicemonitors
-      - kubectl apply -f manifests/examples/rolebindings
-      - kubectl apply -f manifests/examples/serviceaccounts
 
   k8s:createconfigMap:
     prefix: k8s > createconfigMap
@@ -215,3 +188,18 @@ tasks:
         sh: kubectl get sa argo -n argo -o jsonpath='{.secrets[0].name}'
       TOKEN: 
         sh: kubectl get secret -n argo {{.SECRET_NAME}} -o jsonpath='{.data.token}' | base64 -d
+
+  argocli:install:
+    prefix: arcocli > install
+    desc: installs the argocli, version 3.2.8
+    cmds:
+      - curl -sLO https://github.com/argoproj/argo-workflows/releases/download/v3.2.8/argo-linux-amd64.gz
+      - gunzip argo-linux-amd64.gz
+      - chmod +x argo-linux-amd64
+      - sudo mv ./argo-linux-amd64 /usr/local/bin/argo
+
+  argocli:uninstall:
+    prefix: arcocli < uninstall
+    desc: uninstalls the argocli, removing from /usr/local/bin
+    cmds:
+      - sudo rm /usr/local/bin/argo 

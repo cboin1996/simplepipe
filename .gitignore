@@ -12,9 +12,6 @@ __pycache__
 # vscode
 .vscode
 
-# Configuration
-.env
-
 # ignore additional misc
 dockerinfo.md
 worfklow-crd.yaml
