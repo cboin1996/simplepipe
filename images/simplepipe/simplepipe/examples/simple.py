@@ -1,5 +1,5 @@
 import random
-from util import fileutil
+import json
 import sys, os
 
 def main():
@@ -12,7 +12,8 @@ def main():
     integer = random.randint(1,100)
 
     metric_fp = os.path.join(sys.path[0], 'metric.json')
-    metric = [{"name" : "simple", 
+    metrics = [{"name" : "simple", 
               "description": "generated random integer", "value": "6", "metric_type": "gauge"}]
-    fileutil.write_json_to_file(metric_fp, metric)
+    with open(fp, 'w') as f:
+        f.write(json.dumps(metrics))
     return metric_fp

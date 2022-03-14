@@ -2,13 +2,23 @@ from enum import Enum
 import logging
 from typing import Generic, TypeVar, List
 import prometheus_client
+import json
+import os
 
 from pydantic.generics import GenericModel
 from pydantic import parse_obj_as
 
-from util import fileutil
-
 logger = logging.getLogger(__name__)
+
+class DataType(str, Enum):
+    """Enum for file types
+    """
+    JSON = ".json"
+
+    @classmethod
+    def has_value(cls, value):
+        return value in cls._value2member_map_ 
+
 class MetricTypeEnum(str, Enum):
     Gauge = "gauge"
     Summary = "summary"
@@ -76,15 +86,16 @@ class MetricCollector(object):
     environment.
     Examples:
     - pushing from a file\n
-        >>> collector = MetricCollector("http://localhost:9091")
-        >>> collector.load_and_push(fp="./my_metrics.json", job_name="example_from_file")
+    >>> collector = MetricCollector("http://localhost:9091")
+    >>> collector.load_and_push(fp="./my_metrics.json", job_name="example_from_file")
+
     - pushing from a dictionary\n
-        >>> metrics = [{"name": "example_metric",     
-                       "description": "metric for example purposes",
-                        "value": 0
-                        "metric_type": "gauge"}]
-        >>> collector = MetricCollector("http://localhost:9091")
-        >>> collector.parse_and_push(metrics=metrics, job_name="example_from_dict")
+    >>> metrics = [{"name": "example_metric",     
+                    "description": "metric for example purposes",
+                    "value": 0
+                    "metric_type": "gauge"}]
+    >>> collector = MetricCollector("http://localhost:9091")
+    >>> collector.parse_and_push(metrics=metrics, job_name="example_from_dict")
     """
     def __init__(self, prometheus_push_gateway_ip: str) -> None:
         self.prometheus_push_gateway_ip = prometheus_push_gateway_ip 
@@ -102,7 +113,14 @@ class MetricCollector(object):
         self.push_to_gateway(metrics=metrics, job_name=job_name)
 
     def parse_and_push(self, metrics: List[dict], job_name: str):
-        metrics = load_metrics_from_file(fp)
+        """Helper method for parsing metrics in the following format and pushing them
+        to the prometheus gateway:
+        >>> metrics = [{"name": "example_metric",     
+                "description": "metric for example purposes",
+                "value": 0,
+                "metric_type": "gauge"}]
+        """
+        metrics = parse_metrics(metrics, typ=DataType.JSON)
         self.push_to_gateway(metrics=metrics, job_name=job_name)
 
     def push_to_gateway(self, metrics: List[Metric], job_name: str):
@@ -129,11 +147,11 @@ def load_metrics_from_file(fp: str):
 
     Example:
         Currently, the supported metric format should be in the form of a json array, or python dict. 
-        Here is an example of an integer metric of type gauge.
-            >>> metrics = [{"name": "example_metric",     
-                            "description": "metric for example purposes",
-                            "value": 0,
-                            "metric_type": "gauge"}]
+    Here is an example of an integer metric of type gauge.
+    >>> metrics = [{"name": "example_metric",     
+                    "description": "metric for example purposes",
+                    "value": 0,
+                    "metric_type": "gauge"}]
 
     Args:
         fp (str): the filepath
@@ -145,14 +163,15 @@ def load_metrics_from_file(fp: str):
         List[Metric]: list of parsed Metric objects.
     """
     logger.info(f"Attempting to load metrics from {fp}")
-    file_extension_str = fileutil.detect_filetype(fp)
+    file_extension_str = detect_filetype(fp)
 
-    if fileutil.DataType.has_value(file_extension_str):
-        extension = fileutil.DataType(file_extension_str)
+    if DataType.has_value(file_extension_str):
+        extension = DataType(file_extension_str)
 
-        if extension == fileutil.DataType.JSON:
-            metrics = fileutil.load_json_from_file(fp)
-            parsed_metrics = parse_metrics(metrics, fileutil.DataType.JSON)
+        if extension == DataType.JSON:
+            with open(fp, 'r') as f:
+                metrics = json.load(f)
+            parsed_metrics = parse_metrics(metrics, DataType.JSON)
             logger.info("Parsed metrics successully.")
             return parsed_metrics
 
@@ -160,22 +179,41 @@ def load_metrics_from_file(fp: str):
     # no metrics were loaded, and thus the filetype must be invalid.
     raise ValueError(f"Invalid filetype! Filetype of '{file_extension_str}' is unsupported.")     
 
-def parse_metrics(metrics, typ: fileutil.DataType):
+def parse_metrics(metrics, typ: DataType):
     """Method for parsing metrics given a data type
 
     Args:
         metrics (object): the metrics to parse
-        typ (fileutil.DataType): the data type which declares how to parsing should occur
+        typ (DataType): the data type which declares how to parsing should occur
 
     Returns:
         List[Metric]: the parsed list of metrics.
     """
     # can declare other types as they are implemented, with custom parsing 
     # per use case.
-    if typ == fileutil.DataType.JSON:
+    if typ == DataType.JSON:
         return parse_obj_as(List[Metric], metrics)
     else:
         raise ValueError(f"Invalid type '{typ}' passed. Cannot parse metrics!")
+
+def detect_filetype(fp: str) -> str:
+    """Parses the file extension from a str path
+
+    Args:
+        fp (str): the path to the file
+
+    Returns:
+        str: the extension for the file.
+    """
+
+    if os.path.exists(fp):
+        file_name, file_extension, = os.path.splitext(os.path.join(fp))
+    else:
+        raise ValueError(f"Path {fp} does not exist and thus file type cannot be determined!")
+
+    return file_extension
+
+
 
 if __name__=="__main__":
     metrics = [{"name" : "test", "job": "testjob", "description": "this is a test job", "value": "6", "metric_type": "gauge"}]
