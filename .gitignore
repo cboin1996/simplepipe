@@ -13,5 +13,6 @@ __pycache__
 .vscode
 
 # ignore additional misc
+.env
 dockerinfo.md
 worfklow-crd.yaml
