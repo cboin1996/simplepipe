@@ -131,19 +131,19 @@ tasks:
       - kubectl delete ns {{.BOB_NAMESPACE}}
 
   manifests:install:
-    prefix: argo > install
+    prefix: manifests > install
     desc: installs argo workflow to the currently active cluster in the 'argo' namespace
     cmds:
       - kustomize build manifests | kubectl apply -f -
       - task: argo:minio-cred
 
   manifests:uninstall:
-    prefix: argo < uninstall
+    prefix: manifests < uninstall
     desc: |
-      uninstalls argo workflow from the currently active cluster by deleting
-      the argo namespace
+      uninstalls k8s manifests from the currently active cluster by deleting
+      all resource associated with the manifests:install task
     cmds:
-      - kubectl delete ns argo
+      - kustomize build manifests | kubectl delete -f -
 
   argo:minio-cred:
     prefix: argo > minio-cred
