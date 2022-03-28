@@ -7,6 +7,7 @@
 
 PDF_NAME = ../slides
 WATCH = ../content.md
+ASSETS = ../assets
 
 build: .build/titlepage.pdf .build/content.pdf
 	pdfunite .build/titlepage.pdf .build/content.pdf $(PDF_NAME).pdf
@@ -29,6 +30,6 @@ template:
 .build/content.pdf: $(WATCH)
 	@echo Make the title page
 	@mkdir -p .build
-	pandoc -s -t beamer --template .DScD.beamer -o .build/content.pdf $(WATCH)
+	pandoc -s -t beamer --template .DScD.beamer -o .build/content.pdf $(WATCH) -f markdown+implicit_figures
 
 # end
