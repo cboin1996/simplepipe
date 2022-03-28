@@ -1,152 +1,131 @@
 ---
 title: Metrics
-subtitle: Estimate what's growing from space for $60
-author: Christian Boin + Bdawgkk
+subtitle: Proof of Technology - Monitoring
+author: Christian Boin
 date: \today
 ---
 
-# What the code does
+# Goal: Make Observability Easy
+![Administrator dashboard example monitoring application run-times.](../assets/dashboard.png){width=90%}
 
-## The Pipeline
-- Consists of a few dockerized submodules and pachyderm pipeline json files. 
-- Handles automated ingestion to proprocessing.
-    - Fetches them from the USGS API
-    - Downloads if they meet certain criteria (low cloud coverage, the right
-    geographical area, etc)
-    - Extracts each agricultural quarter section as numerical data
-    
-Takes as input the shapefiles of agricultural regions.
+# Purpose
 
+- To develop a proof of technology illustrating:
+  - How a metrics gathering application can be designed and implemented using Prometheus and Grafana
+  - How metrics can be generated within data science projects for use with Prometheus
+  - Standardized monitoring across Argo Workflows and Seldon
 
-# Duration per task
+# Project Technologies
 
-```
-$ pachctl list job
-PIPELINE     DURATION     PROGRESS      DL       UL       
-ndvi-calc    12 minutes   2  + 0 / 2    747.8MiB 1.304GiB 
-qs-extract   20 minutes   12 + 0 / 12   1.423GiB 747.8MiB 
-```
+- Argo Workflows
+- Prometheus Pushgateway
+- Prometheus
+- Grafana
+- Python
+- Docker
+- Kustomize
+- Helm
+- Kubernetes
 
-# Cost Breakdown
+# TL;DR
+- Prometheus is a pull based monitoring system, however Prometheus provides a Pushgateway 
+which allows pushing of metrics via a REST-like interface or an SDK
+- Installing a Prometheus Pushgateway per user namespace can allow each user to push metrics
+since Service Monitors can allow Prometheus to scrape each Pushgateway
+- An application, Simplepipe, was designed as to make use of the Pushgateway Python SDK in
+a standardized simple to use format.
 
-| Node | Commitment | Cost per hour |
-|:----:|--|----| 
-| `D8s-v3` | [pay-as-you-go](https://azure.microsoft.com/en-us/pricing/calculator/#virtual-machinesc6c20c6e-e204-480f-a5b5-1c17b0388c8a) | $0.51/h CAD |
-| `D8s-v3` | [a 3 year plan](https://azure.microsoft.com/en-us/pricing/calculator/#virtual-machinesc6c20c6e-e204-480f-a5b5-1c17b0388c8a) | $0.22/h CAD |
+# Design
+- Utilizing the Prometheus Pushgateway allows two monitoring models to come to mind:
+Concurrent (real time) or Sequential
 
-**We will over-estimate and use pay-as-you-go in our calculations.** 
+![High level flow diagram of sequential versus concurrent models](../assets/seqvconc.png){width=70%}
 
-| Stage        | Time   | Peak Mem Use | Nodes     | Cost ($0.51/h) | Parallelism  |
-|:------------ |:------:|:------------:|:---------:|:--------------:|:------------:|
-| qs-extract   | 20m    | 6G per node  | 2x D8s v3 | $0.34          | 3/6 bands    |
-| ndvi-calc    | 15m    | 20GB         | 1x D8s v3 | $0.1275        | 1 scene      |
-
-# Cost Breakdown (cont.)
-
-## Analysis
-- Images are not the same size.
-- Skew the estimate for one image by taking 75% of the combined cost of two images.
-- Esimate for one image: `0.75 * ($0.34 + $0.1275) ~= 0.351`. 
-
-- With 120 images a season, **total compute cost of less than `$43`.**
-
-**Note:** This price accounts for the full cost of pay-as-you-go nodes. 
-
-- Shared DAaaS Kubernetes cluster is more likely to make a long-term commitment to a pool of nodes (for a %60 cost reduction)
-
-
-# Storage
-
-For storage cost, hot blob storage costs $0.023/gb/month, so using that as a benchmark, we have, storing two images and the Alberta shapefiles:
-
-\break
-
-```
-NAME                   ... SIZE          DESCRIPTION                  
-extracted              ... 1.304GiB      pipeline extracted.           
-quarter-section-bands  ... 747.8MiB      pipeline quarter-section-bands.
-images                 ... 1.374GiB      pipeline images.         
-events-test            ... 508B                                    
-events                 ... 43.98KiB      pipeline events.           
-timer                  ... 11B           timer for pipeline events.  
-pathrows               ... 543B          pipeline pathrows.              
-trackframe-tables      ... 253MiB        pipeline trackframe-tables.     
-trackframe-shapefiles  ... 1.469GiB                                  
+# Usage:  Concurrent Design as a Python package
+- A concurrent model would likely require users to manage a Prometheus Pushgateway 
+within their application
+- To standardize metric creation, users could import Simplepipe as an SDK and push metrics:
+```python
+metrics = [{"name": "example_metric",
+              "description": "metric for example purposes",
+              "value": 0,
+              "metric_type": "gauge"}]
+collector = MetricCollector("http://localhost:9091")
+collector.parse_and_push(metrics=metrics, job_name="example_from_dict")
 ```
 
-# Storage (cont.)
+# Usage:  Sequential Design
+Currently, a sequential design is implemented:
 
-With a constant 2gb of storage for the shapefiles and such, plus an estimated 0.75 * (4GB) to estimate the size of an average image & data, we get that 4 months of usage adds up to
+- Useful for monitoring information across workflows such as: 
+  - run time 
+  - data processing information (number of images, data volume processed)
+  - accuracy of ML models
 
+- Users would output metrics in a predefined format
+- Simplepipe would be responsible for loading and pushing metrics to the Pushgateway
+- We implemented the sequential design using Argo workflows configured to use Minio as an
+artifact repository
+
+# Usage:  Sequential Design (cont.)
+
+![Detailed design of sequential model](../assets/design.png){width=40%}
+
+# Usage:  Sequential Design (cont.)
+- Users (Alice and Bob) output artifacts within workflows:
+- An artifact can be imported to Simplepipe within a Workflow CRD:
+```yaml
+inputs:
+  artifacts:
+    - name: file
+      path: "/tmp/metric-in.json"
+      s3:
+        key: metric-json
+container:
+  image: simplepipe:latest
+  imagePullPolicy: IfNotPresent
+  command: [python3]
+  args: ["app.py", "/tmp/metric-in.json", "simple"]
 ```
-Constant + Growing
-= (2gb * $0.023 * 4 months) 
-    + ($0.023 / 30) * (3GB + 2*3GB + 3*3GB + ... 120*3GB)
-= (2gb * $0.023 * 4 months) + ($0.023 / 30) * 3 * (121*120/2) 
-= $17
-```
 
-*This is an upper bound, as we would probably not use hot storage for everything.*
+# Example Scenario: Sequential Design
 
-# Total
+- An administrator wants to gain insight on application run times for two users: Alice and Bob
+- The administrator instructs Alice and Bob to use Prometheus, and provides them a docker
+  image of Simplepipe, with instruction on how to format their metrics as inputs to Simplepipe
+- Alice and Bob time their applications, and output the time elapsed into proper metric format for Simplepipe
+- The administrator creates a dashboard in Grafana, querying Prometheus for Alice and Bob's metrics
 
-The season's estimate would then be around $60 for four months.
+# Example Scenario (cont.)
+![Administrator dashboard example monitoring application run-times.](../assets/dashboard.png){width=90%}
 
+# Potential Applications
 
-# What optimizations were done?
+## Sequential Design
+- Any metric useful to be known once a workflow terminates:
+  - Number of images processed in an image processing pipeline
+  - Runtime of time critical workflows
+  - Metrics related to training ML models such as accuracy
+  - Memory usage
 
-Why is it faster and cheaper?
+## Concurrent Design
+- Any metric needed to known in real time for long lived applications
+  - DRL training often takes days, and knowledge of how the model is performing would be useful
+for determining if training should continue or can be abandoned
 
-# 1. We chopped the large shapefile up
+# Potential Applications (cont.)
+## Sequential and/or Concurrent Designs
+- Implementation within AAW would allow for users to add metrics to their applications with
+  little to no effort
+- Alerting for metrics to notify when something is failing:
+  - Expected values can be set in Grafana and thus alerting is possible when values fall outside
+  the threshold
+- This work could also provide a standardized format for using metrics within Argo Workflows
+and Seldon
 
-## Carved up the large shapefile into smaller ones
-- Each shapefile roughly the size of a WRS2 TrackFrame. 
-  - Every satellite image has metadata which states its WRS2 trackframe, so we
-  only need to read in these local shapefiles when processing an image. 
-  
-Significantly improved the speed and memory footprint of the application.
+# Future Work
+- Multi-tenancy with Prometheus and Grafana is challenging, and solutions will need investigation
+- Defining standard metrics for a consistency across multiple applications
+- Standardizing dashboards (can be done with configMaps in k8s)
 
-# 2. Changed the parallelization code
-
-## Originally had several workers processing an image in parallel
-  - They duplicated the shapefiles and image in memory
-  - Caused a 30x increase in memory usage. 
-  - Moved to the R `doParallel` package and eliminated this duplication.
-
-# 3. Avoided writing small files
-
-## Originally wrote each quarter section's data to a file 
-- This is a slow operation
-- Instead we grouped the files into a single large file 
-- We also compressed to minimize storage use.
-
-# 4. Did Shapefile Preprocessing
-
-## Avoid loading the shapefiles
-
-- By extracting the bounding boxes of every quarter section in advance from the
-shapefiles, we ultimately did not need to load the shapefiles. 
-
-    - Reduced the memory footprint by avoiding loading extra metadata.
-    - Sped up the computation time by avoiding recalculation on each run.
-
-# 5. Modified functions from the R raster package
-
-## Found a better way to interact with the raster files
-- Some of the original approaches to extract one quarter section from the raster
-image were slow 
-- Iterated through a few designs and ultimately rewriting a modified and condensed version of the `crop` function from [the raster package](https://cran.r-project.org/package=raster)
-
-# 6. Ran on Pachyderm & Kubernetes
-
-## No warm up or cool down
-- Docker images are stored within artifactory, so loading them is very fast. 
-
-- The node pool is always live within the Kubernetes cluster, so no warm-up or cool-down time for a vm.
-
-## A little parallelization
-
-  - quarter section extraction runs on two VMs processing 3 bands and a time. 
-  - The processed images are then passed to one node which calculates the NDVI.
-
-*At the moment, this last step has the worst memory performace, but it can easily be fixed, and ultimately it can probably be run with a memory footprint less than 5GB.*
+# Questions?
